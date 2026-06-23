@@ -155,16 +155,22 @@ def detect_projects(tweets: list[dict]) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-def clone_project(project: dict, dest_base: str, vault_path: str) -> Path:
-    """Clone a GitHub repository into the vault's bookmarks directory.
+CLONE_BASE: Path = Path.home() / "projects" / "xfeed" / "tests" / "projects"
 
-    *dest_base* is unused (kept for interface compatibility). The actual
-    destination is ``{vault_path}/X/Bookmarks/{project_name}/``.
+
+def clone_project(project: dict, dest_base: str, vault_path: str) -> Path:
+    """Clone a GitHub repository outside the Obsidian vault.
+
+    The actual cloned code goes to ``{CLONE_BASE}/{project_name}/`` to avoid
+    bloating the vault.  Only the review (``REVIEW.md``) is written inside
+    the vault under ``X/Bookmarks/{project_name}/``.
+
+    *dest_base* is unused (kept for interface compatibility).
 
     Returns:
         Path to the cloned (or already-existing) repo directory.
     """
-    dest = Path(vault_path) / "X" / "Bookmarks" / project["project_name"]
+    dest = CLONE_BASE / project["project_name"]
     if dest.exists():
         logger.info("Already cloned: %s", dest)
         return dest

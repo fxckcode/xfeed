@@ -16,6 +16,7 @@ DEFAULT_STATE: dict[str, Any] = {
     "last_bookmark_id": None,
     "last_like_id": None,
     "tested_projects": [],
+    "processed_article_urls": [],
 }
 
 
@@ -79,4 +80,15 @@ def mark_projects_tested(
         tested.add(name)
     new_state = dict(state)
     new_state["tested_projects"] = list(tested)
+    return new_state
+
+
+def mark_articles_processed(
+    state: dict[str, Any], urls: list[str]
+) -> dict[str, Any]:
+    """Add *urls* to the ``processed_article_urls`` list and return new state."""
+    seen: set[str] = set(state.get("processed_article_urls", []))
+    seen.update(urls)
+    new_state = dict(state)
+    new_state["processed_article_urls"] = list(seen)
     return new_state

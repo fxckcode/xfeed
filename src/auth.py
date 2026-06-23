@@ -22,24 +22,13 @@ async def _wait_for_login(page: Page, timeout: int = 120) -> None:
         except Exception:
             continue
         if url.rstrip("/").endswith(("x.com/home", "x.com/")):
-            print("✅ Login detected, saving session...")
+            print("Login detected, saving session...")
             return
     raise TimeoutError("Login not detected within 120s timeout")
 
 
 async def login(cookies_dir: Path) -> None:
-    """Open headed Playwright browser for manual X login, then persist session.
-
-    Navigates to x.com and waits up to 120s for the user to log in.
-    Once on x.com/home or x.com/, saves browser storage state to
-    ``cookies_dir / state.json``.
-
-    Args:
-        cookies_dir: Directory where the session storage state is saved.
-
-    Raises:
-        TimeoutError: If login isn't detected within the timeout.
-    """
+    """Open headed Playwright browser for manual X login, then persist session."""
     cookies_dir.mkdir(parents=True, exist_ok=True)
     state_path = cookies_dir / "state.json"
 
@@ -55,17 +44,7 @@ async def login(cookies_dir: Path) -> None:
 
 
 async def load_session(cookies_path: Path) -> dict[str, Any]:
-    """Load a saved Playwright storage state from disk.
-
-    Args:
-        cookies_path: Path to the storage state JSON file.
-
-    Returns:
-        The deserialized storage state dictionary.
-
-    Raises:
-        FileNotFoundError: If the storage state file doesn't exist.
-    """
+    """Load a saved Playwright storage state from disk."""
     if not cookies_path.exists():
         raise FileNotFoundError(f"Session file not found: {cookies_path}")
     with open(cookies_path) as f:
@@ -75,16 +54,16 @@ async def load_session(cookies_path: Path) -> dict[str, Any]:
 async def is_logged_in(page: Page) -> bool:
     """Check whether the Playwright page has an active X session.
 
-    Navigates to x.com/home and looks for ``<article>`` elements
-    as evidence of a rendered timeline.
-
-    Args:
-        page: An active Playwright page.
-
-    Returns:
-        True if tweets (article elements) are visible, False otherwise.
+    Navigates to x.com/home and looks for article elements.
+    Waits up to 10s for tweets to render.
     """
-    await page.goto("https://x.com/home", wait_until="domcontentloaded")
-    await page.wait_for_timeout(3000)
-    articles = await page.locator("article").count()
-    return articles > 0
+    try:
+        await page.goto("https://x.com/home", wait_until="domcontentloaded")
+        await page.wait_for_timeout(2000)
+        await page.wait_for_selector("article", timeout=8000)
+        return True
+    except Exception:
+        await page.goto("https://x.com/home", wait_until="domcontentloaded")
+        await page.wait_for_timeout(3000)
+        articles = await page.locator("article").count()
+        return articles > 0

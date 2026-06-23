@@ -15,6 +15,7 @@ from typing import Any
 
 from playwright.async_api import async_playwright
 
+from src.article_reader import process_articles
 from src.auth import is_logged_in, load_session
 from src.config import Config, load_config
 from src.enrich import enrich_tweets
@@ -27,7 +28,7 @@ from src.scraper import (
     scrape_likes,
     scrape_timeline,
 )
-from src.state import load_state, mark_projects_tested, save_state, update_state
+from src.state import load_state, mark_articles_processed, mark_projects_tested, save_state, update_state
 from src.tester import process_tweet_projects
 
 logger = logging.getLogger("xfeed")
@@ -262,22 +263,50 @@ async def main() -> None:
                 state = mark_projects_tested(state, tested_names)
 
             # ----------------------------------------------------------
-            # 11. Update & persist state
+            # 11. Process articles from tweets
+            # ----------------------------------------------------------
+            article_urls_before: set[str] = set(
+                state.get("processed_article_urls", [])
+            )
+            article_results = await process_articles(
+                enriched,
+                config.vault_path,
+                config.firecrawl_url,
+                article_urls_before,
+            )
+            n_articles = len(article_results)
+            if article_results:
+                logger.info("Processed %d articles from tweets", n_articles)
+                for r in article_results:
+                    logger.info(
+                        "  %s: %s → %s",
+                        r.get("title", r["url"][:40]),
+                        r["status"],
+                        r.get("note_path", "N/A"),
+                    )
+                new_urls = [r["url"] for r in article_results]
+                state = mark_articles_processed(state, new_urls)
+
+            # ----------------------------------------------------------
+            # 12. Update & persist state
             # ----------------------------------------------------------
             state = update_state(state, all_tweets)
             save_state(state_path, state)
 
             # ----------------------------------------------------------
-            # 12. Summary
+            # 13. Summary
             # ----------------------------------------------------------
             logger.info(
-                "Summary: %d scraped, %d new, %d tech, %d enriched, %d written, %d projects tested",
+                "Summary: %d scraped, %d new, %d tech, "
+                "%d enriched, %d written, "
+                "%d projects tested, %d articles processed",
                 n_scraped,
                 n_new,
                 n_tech,
                 n_enriched,
                 n_written,
                 n_tested,
+                n_articles,
             )
 
     finally:
