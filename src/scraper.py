@@ -71,9 +71,26 @@ _EXTRACT_TWEETS_JS: str = """
       const parts = href.split("?");
       const url = "https://x.com" + parts[0];
 
-      const userEls = article.querySelectorAll('[data-testid="User-Name"] span');
-      const author = userEls.length > 1 ? userEls[userEls.length - 1].textContent.trim() : "";
-      const author_display = userEls.length > 0 ? userEls[0].textContent.trim() : "";
+      // Extract author from profile links — more robust than User-Name div
+      const allProfileLinks = article.querySelectorAll('a[href*="/"][role="link"]');
+      let author = "";
+      let author_display = "";
+      for (const a of allProfileLinks) {
+        const h = a.getAttribute("href") || "";
+        if (h.startsWith("/") && !h.includes("/status/") && !h.includes("/hashtag/") && !h.includes("/search/") && h.split("/").length <= 3) {
+          author = h.replace("/", "");
+          // Find display name: first non-empty span inside the link
+          const spans = a.querySelectorAll("span");
+          for (const s of spans) {
+            const t = (s.textContent || "").trim();
+            if (t && !t.startsWith("@")) {
+              author_display = t;
+              break;
+            }
+          }
+          break;
+        }
+      }
 
       const textEl = article.querySelector('[data-testid="tweetText"]');
       const text = textEl ? textEl.textContent.trim() : "";
