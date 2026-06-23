@@ -263,12 +263,18 @@ async def main() -> None:
 
     finally:
         # ----------------------------------------------------------
-        # 12. Always close browser
+        # 12. Always close browser (safe cleanup)
         # ----------------------------------------------------------
         if context is not None:
-            await context.close()
+            try:
+                await context.close()
+            except Exception:
+                pass
         if browser is not None:
-            await browser.close()
+            try:
+                await browser.close()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
