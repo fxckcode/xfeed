@@ -27,7 +27,8 @@ from src.scraper import (
     scrape_likes,
     scrape_timeline,
 )
-from src.state import load_state, save_state, update_state
+from src.state import load_state, mark_projects_tested, save_state, update_state
+from src.tester import process_tweet_projects
 
 logger = logging.getLogger("xfeed")
 
@@ -244,21 +245,39 @@ async def main() -> None:
                 logger.info("No bookmark tweets to write")
 
             # ----------------------------------------------------------
-            # 10. Update & persist state
+            # 10. Auto-test projects found in tweets
+            # ----------------------------------------------------------
+            tested_before: set[str] = set(state.get("tested_projects", []))
+            reviews = process_tweet_projects(
+                enriched, config.vault_path, tested_before
+            )
+            n_tested = len(reviews)
+            if reviews:
+                logger.info("Tested %d projects from tweets", n_tested)
+                for r in reviews:
+                    logger.info(
+                        "  %s: %s → %s", r["project_name"], r["status"], r.get("review_path", "N/A")
+                    )
+                tested_names = [r["project_name"] for r in reviews]
+                state = mark_projects_tested(state, tested_names)
+
+            # ----------------------------------------------------------
+            # 11. Update & persist state
             # ----------------------------------------------------------
             state = update_state(state, all_tweets)
             save_state(state_path, state)
 
             # ----------------------------------------------------------
-            # 11. Summary
+            # 12. Summary
             # ----------------------------------------------------------
             logger.info(
-                "Summary: %d scraped, %d new, %d tech, %d enriched, %d written to vault",
+                "Summary: %d scraped, %d new, %d tech, %d enriched, %d written, %d projects tested",
                 n_scraped,
                 n_new,
                 n_tech,
                 n_enriched,
                 n_written,
+                n_tested,
             )
 
     finally:

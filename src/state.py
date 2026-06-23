@@ -15,6 +15,7 @@ DEFAULT_STATE: dict[str, Any] = {
     "last_timeline_id": None,
     "last_bookmark_id": None,
     "last_like_id": None,
+    "tested_projects": [],
 }
 
 
@@ -67,3 +68,15 @@ def update_state(state: dict[str, Any], tweets: list[Tweet]) -> dict[str, Any]:
 def count_new_tweets(state: dict[str, Any]) -> int:
     """Return the total number of seen tweets (quick stats)."""
     return len(state["seen_ids"])
+
+
+def mark_projects_tested(
+    state: dict[str, Any], project_names: list[str]
+) -> dict[str, Any]:
+    """Add *project_names* to the ``tested_projects`` list and return new state."""
+    tested: set[str] = set(state.get("tested_projects", []))
+    for name in project_names:
+        tested.add(name)
+    new_state = dict(state)
+    new_state["tested_projects"] = list(tested)
+    return new_state
