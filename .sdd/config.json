@@ -1,0 +1,9 @@
+{
+  "project": "xfeed",
+  "stack": "python",
+  "test_framework": "pytest",
+  "artifact_store": "files-only",
+  "chain_strategy": "single-pr",
+  "init_done": true,
+  "skills": ["ecc-coding-standards", "obsidian-markdown", "command-code"]
+}

@@ -1,0 +1,40 @@
+# xfeed configuration
+vault_path: "~/Documents/docs"       # Path to Obsidian vault
+x_handle: "your_handle"              # Your X/Twitter handle (without @)
+firecrawl_url: "http://localhost:3002"  # Firecrawl self-hosted URL
+keywords:
+  - ai
+  - artificial intelligence
+  - llm
+  - gpt
+  - claude
+  - codex
+  - hermes
+  - agent
+  - coding
+  - programming
+  - python
+  - typescript
+  - react
+  - framework
+  - library
+  - api
+  - docker
+  - github
+  - open source
+  - "open-source"
+  - tool
+  - mcp
+  - model context protocol
+  - llm
+  - rag
+  - vector
+  - embedding
+  - fine-tune
+  - fine tune
+  - finetune
+  - automation
+  - devops
+  - deploy
+max_tweets_per_source: 20          # Max tweets per source (timeline/bookmarks/likes)
+cron_interval: "every 6 hours"     # Cron schedule
