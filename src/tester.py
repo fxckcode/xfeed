@@ -8,6 +8,7 @@ note (``REVIEW.md``) to the Obsidian vault under ``X/Bookmarks/``.
 from __future__ import annotations
 
 import datetime
+import json
 import logging
 import re
 import subprocess
@@ -326,6 +327,74 @@ def _run_help(repo_path: Path, ptype: str, project_name: str) -> str:
     return ""
 
 
+def _read_project_info(repo_path: Path) -> dict:
+    """Extract project metadata: README summary, description, tech stack, recent commits.
+
+    Looks at ``README.md``, manifest files (``pyproject.toml``,
+    ``package.json``, ``Cargo.toml``, ``go.mod``), and recent git log.
+    """
+    info: dict[str, Any] = {
+        "readme_summary": "",
+        "description": "",
+        "tech_stack": [],
+        "recent_commits": [],
+    }
+
+    # README
+    for readme_name in ("README.md", "README.rst", "README"):
+        readme = repo_path / readme_name
+        if readme.exists():
+            try:
+                text = readme.read_text(encoding="utf-8", errors="replace")
+                info["readme_summary"] = text.strip()[:500]
+            except OSError:
+                pass
+            break
+
+    # Manifest files
+    pyproj = repo_path / "pyproject.toml"
+    if pyproj.exists():
+        try:
+            # Minimal TOML parse — only looks for [project] description
+            text = pyproj.read_text(encoding="utf-8")
+            m = re.search(r'^description\s*=\s*"(.+)"', text, re.MULTILINE)
+            if m:
+                info["description"] = m.group(1)
+        except OSError:
+            pass
+
+    pkg_json = repo_path / "package.json"
+    if pkg_json.exists():
+        try:
+            data = json.loads(pkg_json.read_text(encoding="utf-8"))
+            info["description"] = info["description"] or data.get("description", "")
+            deps = {**data.get("dependencies", {}), **data.get("devDependencies", {})}
+            for key in deps:
+                info["tech_stack"].append(key.split("/")[-1] if "/" in key else key)
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    # Recent git commits
+    try:
+        result = subprocess.run(
+            ["git", "log", "--oneline", "-10"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=True,
+        )
+        if result.stdout.strip():
+            info["recent_commits"] = result.stdout.strip().splitlines()
+    except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
+        pass
+
+    # Limit tech_stack to a reasonable sample
+    info["tech_stack"] = info["tech_stack"][:10]
+
+    return info
+
+
 def test_github_repo(project: dict, repo_path: Path) -> dict:
     """Install dependencies and smoke-test a cloned GitHub repo.
 
@@ -338,6 +407,9 @@ def test_github_repo(project: dict, repo_path: Path) -> dict:
     """
     errors: list[str] = []
     ptype = _detect_project_type(repo_path)
+
+    # Enrich with project info from README, manifest, git log
+    project_info = _read_project_info(repo_path)
 
     install_ok = _install_deps(repo_path, ptype)
     if not install_ok:
@@ -362,6 +434,7 @@ def test_github_repo(project: dict, repo_path: Path) -> dict:
         "help_output": help_output,
         "errors": errors,
         "project_type": ptype,
+        **project_info,
     }
 
 
@@ -535,8 +608,75 @@ def _verdict_summary(status: str, errors: list[str]) -> str:
     return "Failed — could not install or run the project."
 
 
+def _generate_integration_ideas(name: str, description: str, tech_stack: list[str]) -> list[str]:
+    """Generate plausible integration ideas based on project metadata.
+
+    Uses heuristics on the project name, description, and detected tech
+    stack to suggest how xfeed could leverage the project.
+    """
+    ideas: list[str] = []
+    name_lower = name.lower()
+    stack_lower = [s.lower() for s in tech_stack]
+
+    # CLI tools
+    if any(t in stack_lower for t in ("click", "typer", "argparse", "commander", "yargs")):
+        ideas.append("Could be invoked as a subprocess from xfeed for CLI-based automation.")
+
+    # Web frameworks / HTTP clients
+    if any(
+        t in stack_lower
+        for t in ("fastapi", "flask", "django", "httpx", "requests", "aiohttp", "express")
+    ):
+        ideas.append("HTTP API could be consumed by xfeed for enrichment or data fetching.")
+
+    # Data processing / ML
+    if any(
+        t in stack_lower
+        for t in ("pandas", "numpy", "scikit", "transformers", "torch", "tensorflow", "jax")
+    ):
+        ideas.append(
+            "Data-processing / ML pipeline could enrich tweets "
+            "(e.g. summarisation, classification)."
+        )
+
+    # Parsers / AST / code analysis
+    if any(
+        t in stack_lower
+        for t in ("lark", "tree-sitter", "ast", "pyright", "esprima", "babel")
+    ):
+        ideas.append("Parser / AST tools could analyse code snippets found in tweet bodies.")
+
+    # Markdown / note-taking
+    if any(
+        t in stack_lower
+        for t in ("markdown", "remark", "mdx", "obsidian", "frontmatter")
+    ):
+        ideas.append("Markdown-processing library could enhance Obsidian note output formatting.")
+
+    # Generic fallbacks based on name patterns
+    if "api" in name_lower or "client" in name_lower:
+        ideas.append("API client could fetch additional metadata for enriched tweets.")
+
+    if "test" in name_lower or "check" in name_lower or "lint" in name_lower:
+        ideas.append("Quality tool could run automated validation on xfeed output or scraped data.")
+
+    if not ideas:
+        ideas.append(f"Lightweight utility — could be composed into xfeed's pipeline for {name}.")
+
+    return ideas[:3]
+
+
+_DESCRIPTION_STACK_RE = re.compile(
+    r"(python|node|typescript|javascript|rust|go|cli|api|web|markdown|json|yaml|"
+    r"testing|linting|formatting|automation|scraping|parsing|analysis)", re.IGNORECASE
+)
+
+
 def write_review(project: dict, test_result: dict, vault_path: str) -> str:
-    """Write a ``REVIEW.md`` for a tested project into the Obsidian vault.
+    """Write a rich ``REVIEW.md`` for a tested project into the Obsidian vault.
+
+    Includes README summary, tech stack, recent commits, help output,
+    integration ideas, and a verdict — all sourced from *test_result*.
 
     File path: ``{vault_path}/X/Bookmarks/{project_name}/REVIEW.md``
 
@@ -552,6 +692,12 @@ def write_review(project: dict, test_result: dict, vault_path: str) -> str:
     status = test_result.get("status", "failed")
     help_output = test_result.get("help_output", "")
     errors: list[str] = test_result.get("errors", [])
+
+    readme_summary = test_result.get("readme_summary", "")
+    description = test_result.get("description", "")
+    tech_stack: list[str] = test_result.get("tech_stack", [])
+    recent_commits: list[str] = test_result.get("recent_commits", [])
+
     today = datetime.date.today().isoformat()
 
     dest = Path(vault_path) / "X" / "Bookmarks" / project_name
@@ -574,19 +720,58 @@ def write_review(project: dict, test_result: dict, vault_path: str) -> str:
         "## Project Info",
         f"- **Name**: {project_name}",
         f"- **Source**: {url}",
-        "",
-        "## Test Results",
-        f"- **Install**: {'✅' if install_ok else '❌'}",
-        f"- **Type**: {ptype}",
-        "",
-        "## Help Output",
-        "",
     ]
 
-    if help_output:
-        sections.append(f"```\n{help_output}\n```")
+    if description:
+        sections.append(f"- **Description**: {description}")
+
+    sections.append("")
+
+    # README summary
+    if readme_summary:
+        sections.append("## README Summary")
+        sections.append("> [!quote]")
+        sections.append(f"> {readme_summary}")
         sections.append("")
 
+    # Tech stack
+    if tech_stack:
+        tech_bullets = ", ".join(f"`{t}`" for t in tech_stack)
+        sections.append("## Tech Stack")
+        sections.append(tech_bullets)
+        sections.append("")
+
+    # Test Results
+    sections.append("## Test Results")
+    sections.append(f"- **Install**: {'✅' if install_ok else '❌'}")
+    sections.append(f"- **Type**: {ptype}")
+    sections.append(f"- **Status**: {status}")
+    sections.append("")
+
+    # Recent commits
+    if recent_commits:
+        sections.append("## Recent Commits")
+        for c in recent_commits:
+            sections.append(f"- `{c}`")
+        sections.append("")
+
+    # Help output (truncated)
+    if help_output:
+        sections.append("## Help Output")
+        sections.append(f"```\n{help_output[:1000]}\n```")
+        sections.append("")
+
+    # Integration ideas
+    integration_ideas = _generate_integration_ideas(
+        project_name, description, tech_stack
+    )
+    if integration_ideas:
+        sections.append("## Integration Ideas")
+        for idea in integration_ideas:
+            sections.append(f"- {idea}")
+        sections.append("")
+
+    # Verdict
     callout = _verdict_callout(status)
     verdict = _verdict_summary(status, errors)
     sections.append("## Verdict")
@@ -611,7 +796,128 @@ def write_review(project: dict, test_result: dict, vault_path: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# 7. Orchestrator
+# 7. Update index
+# ---------------------------------------------------------------------------
+
+
+def _parse_review_frontmatter(file_path: Path) -> dict[str, Any]:
+    """Parse YAML frontmatter from a REVIEW.md file."""
+    try:
+        text = file_path.read_text(encoding="utf-8")
+    except OSError:
+        return {}
+
+    if not text.startswith("---"):
+        return {}
+
+    _, frontmatter, *_ = text.split("---", 2)
+    result: dict[str, Any] = {}
+
+    for line in frontmatter.strip().splitlines():
+        m = re.match(r"^(\w+):\s*(.*)", line)
+        if m:
+            key = m.group(1)
+            val = m.group(2).strip().strip("'\"")
+            if val.startswith("[") and val.endswith("]"):
+                val = [v.strip() for v in val[1:-1].split(",")]
+            result[key] = val
+
+    return result
+
+
+def update_index(vault_path: str) -> str:
+    """Scan all ``REVIEW.md`` files under ``X/Bookmarks/`` and write an index.
+
+    Output: ``{vault_path}/X/Bookmarks/INDEX.md``
+
+    The table is sorted by date (newest first). Each row shows the date,
+    project name (linked to its review), type, status, and description.
+
+    Returns:
+        Absolute path to ``INDEX.md``.
+    """
+    bookmarks_dir = Path(vault_path) / "X" / "Bookmarks"
+    if not bookmarks_dir.exists():
+        bookmarks_dir.mkdir(parents=True, exist_ok=True)
+
+    rows: list[dict[str, Any]] = []
+
+    for review_file in sorted(bookmarks_dir.rglob("REVIEW.md")):
+        project_dir = review_file.parent
+        project_name = project_dir.name
+        if project_name == "Bookmarks":
+            continue
+
+        fm = _parse_review_frontmatter(review_file)
+        date = fm.get("date", "unknown")
+        tags = fm.get("tags", [])
+        ptype = tags[-1] if isinstance(tags, list) and len(tags) > 1 else ""
+
+        # Read the project's REVIEW.md for status (first ## Verdict line)
+        status = ""
+        try:
+            text = review_file.read_text(encoding="utf-8")
+            m = re.search(r"## Test Results.*?- \*\*Status\*\*:\s*(\S+)", text, re.DOTALL)
+            if m:
+                status = m.group(1)
+        except OSError:
+            pass
+
+        # Read description from frontmatter or the review body
+        description = ""
+        try:
+            text = review_file.read_text(encoding="utf-8")
+            # Look for `- **Description**: ` in Project Info section
+            m = re.search(r"- \*\*Description\*\*:\s*(.+)", text)
+            if m:
+                description = m.group(1).strip()
+        except OSError:
+            pass
+
+        status_icon = {"ok": "✅", "partial": "⚠️", "failed": "❌"}.get(status, "")
+        relative_link = f"Bookmarks/{project_name}/REVIEW.md"
+
+        rows.append(
+            {
+                "date": date,
+                "name": project_name,
+                "link": relative_link,
+                "type": ptype,
+                "status": status,
+                "status_icon": status_icon,
+                "description": description,
+            }
+        )
+
+    # Sort by date descending (newest first)
+    rows.sort(key=lambda r: r["date"], reverse=True)
+
+    lines: list[str] = [
+        "# Bookmarked Project Reviews",
+        "",
+        "| Date | Project | Type | Status | Description |",
+        "| ---- | ------- | ---- | ------ | ----------- |",
+    ]
+
+    for row in rows:
+        name_link = f"[{row['name']}]({row['link']})"
+        lines.append(
+            f"| {row['date']} | {name_link} | {row['type']} | "
+            f"{row['status_icon']} {row['status']} | {row['description']} |"
+        )
+
+    lines.append("")
+    lines.append(f"_Last updated: {datetime.date.today().isoformat()}_")
+    lines.append("")
+
+    index_path = bookmarks_dir / "INDEX.md"
+    index_path.write_text("\n".join(lines), encoding="utf-8")
+    logger.info("Updated index: %s", index_path)
+    return str(index_path)
+
+
+# ---------------------------------------------------------------------------
+# 8. Orchestrator
 # ---------------------------------------------------------------------------
 
 
@@ -692,5 +998,8 @@ def process_tweet_projects(
                 "review_path": review_path,
             }
         )
+
+    # Regenerate index after all reviews are written
+    update_index(vault_path)
 
     return results
