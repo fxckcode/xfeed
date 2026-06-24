@@ -345,12 +345,12 @@ async def process_articles(
             continue
 
         analysis = analyze_article(scraped)
-        note_path = write_article_note(analysis, vault_path)
         results.append({
             "url": url,
             "title": analysis.get("title", ""),
+            "analysis": analysis,
+            "scraped_markdown": scraped.get("markdown", ""),
             "status": "ok",
-            "note_path": note_path,
         })
 
     return results

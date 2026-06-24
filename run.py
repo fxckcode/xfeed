@@ -246,25 +246,18 @@ async def main() -> None:
                 logger.info("No bookmark tweets to write")
 
             # ----------------------------------------------------------
-            # 10. Auto-test projects found in tweets
+            # 10. Collect project & article data for cron prompt
             # ----------------------------------------------------------
             tested_before: set[str] = set(state.get("tested_projects", []))
-            reviews = process_tweet_projects(
+            project_results = process_tweet_projects(
                 enriched, config.vault_path, tested_before
             )
-            n_tested = len(reviews)
-            if reviews:
-                logger.info("Tested %d projects from tweets", n_tested)
-                for r in reviews:
-                    logger.info(
-                        "  %s: %s → %s", r["project_name"], r["status"], r.get("review_path", "N/A")
-                    )
-                tested_names = [r["project_name"] for r in reviews]
+            n_tested = len(project_results)
+            if project_results:
+                tested_names = [r["project_name"] for r in project_results]
                 state = mark_projects_tested(state, tested_names)
 
-            # ----------------------------------------------------------
-            # 11. Process articles from tweets
-            # ----------------------------------------------------------
+            # Collect article data
             article_urls_before: set[str] = set(
                 state.get("processed_article_urls", [])
             )
@@ -276,16 +269,11 @@ async def main() -> None:
             )
             n_articles = len(article_results)
             if article_results:
-                logger.info("Processed %d articles from tweets", n_articles)
-                for r in article_results:
-                    logger.info(
-                        "  %s: %s → %s",
-                        r.get("title", r["url"][:40]),
-                        r["status"],
-                        r.get("note_path", "N/A"),
-                    )
                 new_urls = [r["url"] for r in article_results]
                 state = mark_articles_processed(state, new_urls)
+
+            # ----------------------------------------------------------
+            # 11. Update & persist state
 
             # ----------------------------------------------------------
             # 12. Update & persist state
